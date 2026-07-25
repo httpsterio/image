@@ -606,3 +606,91 @@ test("#276 Strip eleventy:ignore attribute from img elements inside picture elem
   let results = await elev.toJSON();
   t.is(results[0].content, `<picture><img src="./bio-2017.jpg" alt="My ugly mug"></picture>`);
 });
+
+test("#212 Passthrough via `formats: ['passthrough']` plugin option (adds width/height, no Sharp processing)", async t => {
+  let elev = new Eleventy( "test", "test/_site", {
+    config: eleventyConfig => {
+      eleventyConfig.addTemplate("virtual.html", `<img src="./bio-2017.jpg" alt="My ugly mug">`);
+
+      eleventyConfig.addPlugin(eleventyImageTransformPlugin, {
+        formats: ["passthrough"], // passthrough: copy original bytes, just add dimensions
+        dryRun: true, // don’t write image files!
+      });
+    }
+  });
+  elev.disableLogger();
+
+  let results = await elev.toJSON();
+  // native format (jpeg), single <img> (no <picture>), intrinsic dimensions
+  t.is(results[0].content, `<img src="/virtual/KkPMmHd3hP.jpeg" alt="My ugly mug" width="1280" height="853">`);
+});
+
+test("#212 Passthrough via `eleventy:formats=\"passthrough\"` attribute", async t => {
+  let elev = new Eleventy( "test", "test/_site", {
+    config: eleventyConfig => {
+      eleventyConfig.addTemplate("virtual.html", `<img eleventy:formats="passthrough" src="./bio-2017.jpg" alt="My ugly mug">`);
+
+      eleventyConfig.addPlugin(eleventyImageTransformPlugin, {
+        dryRun: true, // don’t write image files!
+      });
+    }
+  });
+  elev.disableLogger();
+
+  let results = await elev.toJSON();
+  t.is(results[0].content, `<img src="/virtual/KkPMmHd3hP.jpeg" alt="My ugly mug" width="1280" height="853">`);
+});
+
+test("#212 Passthrough via `eleventy:formats=\"passthrough\"` attribute overrides a processing default", async t => {
+  let elev = new Eleventy( "test", "test/_site", {
+    config: eleventyConfig => {
+      eleventyConfig.addTemplate("virtual.html", `<img eleventy:formats="passthrough" src="./bio-2017.jpg" alt="My ugly mug">`);
+
+      eleventyConfig.addPlugin(eleventyImageTransformPlugin, {
+        formats: ["webp", "jpeg"],
+        dryRun: true, // don’t write image files!
+      });
+    }
+  });
+  elev.disableLogger();
+
+  let results = await elev.toJSON();
+  t.is(results[0].content, `<img src="/virtual/KkPMmHd3hP.jpeg" alt="My ugly mug" width="1280" height="853">`);
+});
+
+test("#212 Passthrough as one of many formats: <picture> with a webp source and the original <img> fallback", async t => {
+  let elev = new Eleventy( "test", "test/_site", {
+    config: eleventyConfig => {
+      eleventyConfig.addTemplate("virtual.html", `<img src="./bio-2017.jpg" alt="My ugly mug">`);
+
+      eleventyConfig.addPlugin(eleventyImageTransformPlugin, {
+        formats: ["webp", "passthrough"],
+        dryRun: true, // don’t write image files!
+      });
+    }
+  });
+  elev.disableLogger();
+
+  let results = await elev.toJSON();
+  t.is(results[0].content, `<picture><source type="image/webp" srcset="/virtual/KkPMmHd3hP-1280.webp"><img src="/virtual/KkPMmHd3hP.jpeg" alt="My ugly mug" width="1280" height="853"></picture>`);
+});
+
+test("#212 Passthrough during --serve mode defers to the on-request endpoint (nothing written at transform time)", async t => {
+  let elev = new Eleventy( "test", "test/_site", {
+    config: eleventyConfig => {
+      eleventyConfig.addTemplate("virtual.html", `<img src="./bio-2017.jpg" alt="My ugly mug">`);
+
+      eleventyConfig.addPlugin(eleventyImageTransformPlugin, {
+        formats: ["passthrough"],
+        transformOnRequest: true,
+        dryRun: true,
+      });
+    }
+  });
+  elev.disableLogger();
+
+  let results = await elev.toJSON();
+  // Nothing is written at transform time: src points at /.11ty/image/ with `format=passthrough`,
+  // which tells the on-request endpoint to stream the original bytes (no re-encode) in dev.
+  t.is(normalizeEscapedPaths(results[0].content), `<img src="/.11ty/image/?src=test%2Fbio-2017.jpg&width=1280&format=passthrough&via=transform" alt="My ugly mug" width="1280" height="853">`);
+});

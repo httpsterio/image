@@ -177,6 +177,168 @@ test("Use 'auto' format as original", async t => {
   t.is(stats.jpeg[0].width, 1280);
 });
 
+test("#212 Passthrough (`formats: ['passthrough']`) copies original bytes unchanged", async t => {
+  let outputDir = "./test/img-passthrough/";
+  let stats = await eleventyImage("./test/bio-2017.jpg", {
+    formats: ["passthrough"],
+    outputDir,
+  });
+
+  t.is(stats.jpeg.length, 1);
+  t.is(stats.jpeg[0].width, 1280);
+  t.is(stats.jpeg[0].height, 853);
+  t.is(stats.jpeg[0].format, "jpeg");
+  t.is(stats.jpeg[0].sourceType, "image/jpeg");
+
+  // Passthrough filename is `hash.ext` (no numeric width suffix), which also keeps it
+  // distinct from a re-encoded `hash-<width>.ext` of the same native format.
+  t.is(path.basename(stats.jpeg[0].outputPath), "KkPMmHd3hP.jpeg");
+
+  // Output is byte-for-byte identical to the source (no Sharp re-encode)
+  let source = fs.readFileSync("./test/bio-2017.jpg");
+  let output = fs.readFileSync(stats.jpeg[0].outputPath);
+  t.is(stats.jpeg[0].size, source.length);
+  t.true(source.equals(output));
+
+  fs.rmSync(outputDir, { recursive: true, force: true });
+});
+
+test("#212 Passthrough leaves an existing output target untouched under the default cache", async t => {
+  let outputDir = "./test/img-passthrough-exists/";
+  let outputPath = path.join(outputDir, "KkPMmHd3hP.jpeg");
+
+  // Pre-seed the content-addressed target with sentinel bytes (as if written by a prior build).
+  fs.mkdirSync(outputDir, { recursive: true });
+  fs.writeFileSync(outputPath, "SENTINEL");
+
+  let stats = await eleventyImage("./test/bio-2017.jpg", {
+    formats: ["passthrough"],
+    outputDir, // useCache defaults to true
+  });
+
+  // The existing file is treated as a cache hit (content-addressed filename) and NOT rewritten.
+  t.is(stats.jpeg[0].outputPath, outputPath);
+  t.is(fs.readFileSync(outputPath, "utf8"), "SENTINEL");
+  t.is(stats.jpeg[0].size, "SENTINEL".length);
+
+  fs.rmSync(outputDir, { recursive: true, force: true });
+});
+
+test("#212 Passthrough overwrites an existing output target when `useCache: false`", async t => {
+  let outputDir = "./test/img-passthrough-nocache/";
+  let outputPath = path.join(outputDir, "KkPMmHd3hP.jpeg");
+
+  fs.mkdirSync(outputDir, { recursive: true });
+  fs.writeFileSync(outputPath, "SENTINEL");
+
+  let stats = await eleventyImage("./test/bio-2017.jpg", {
+    formats: ["passthrough"],
+    useCache: false, // bypass the cache: (re)write every build
+    outputDir,
+  });
+
+  // Original bytes are written over the sentinel.
+  let source = fs.readFileSync("./test/bio-2017.jpg");
+  t.is(stats.jpeg[0].outputPath, outputPath);
+  t.true(source.equals(fs.readFileSync(outputPath)));
+
+  fs.rmSync(outputDir, { recursive: true, force: true });
+});
+
+test("#212 A `format=passthrough` on-request URL streams the original bytes (no re-encode)", async t => {
+  // The transform emits `.../?...&format=passthrough` during --serve; the on-request handler
+  // then requests `formats: ["passthrough"]`. No handler special-casing is needed—this mirrors it.
+  let stats = await eleventyImage("./test/bio-2017.jpg", {
+    widths: [1280],
+    formats: ["passthrough"], // handler builds this from `format=passthrough`
+    dryRun: true,
+    transformOnRequest: false,
+  });
+
+  let stat = stats[Object.keys(stats).pop()][0]; // handler’s selection
+  let source = fs.readFileSync("./test/bio-2017.jpg");
+  t.is(stat.sourceType, "image/jpeg"); // native Content-Type, not "passthrough"
+  t.true(source.equals(stat.buffer));
+});
+
+test("#212 Passthrough via string `formats: 'passthrough'` (same as the array form)", async t => {
+  let stats = await eleventyImage("./test/bio-2017.jpg", {
+    formats: "passthrough",
+    dryRun: true,
+    outputDir: "./test/img-passthrough-string/"
+  });
+
+  t.is(stats.jpeg.length, 1);
+  t.is(stats.jpeg[0].width, 1280);
+  t.is(stats.jpeg[0].height, 853);
+  t.is(stats.jpeg[0].format, "jpeg");
+
+  let source = fs.readFileSync("./test/bio-2017.jpg");
+  t.true(source.equals(stats.jpeg[0].buffer));
+});
+
+test("#212 Passthrough (`formats: ['passthrough']`) with dryRun returns a buffer and writes nothing", async t => {
+  let outputDir = "./test/img-passthrough-dryrun/";
+  let stats = await eleventyImage("./test/bio-2017.jpg", {
+    formats: ["passthrough"],
+    dryRun: true,
+    outputDir,
+  });
+
+  t.is(stats.jpeg.length, 1);
+  t.is(stats.jpeg[0].width, 1280);
+  t.true(Buffer.isBuffer(stats.jpeg[0].buffer));
+
+  let source = fs.readFileSync("./test/bio-2017.jpg");
+  t.true(source.equals(stats.jpeg[0].buffer));
+  t.false(fs.existsSync(stats.jpeg[0].outputPath));
+});
+
+test("#212 Passthrough as one format among many keeps the untouched original alongside processed output", async t => {
+  let outputDir = "./test/img-passthrough-mixed/";
+  let stats = await eleventyImage("./test/bio-2017.jpg", {
+    formats: ["webp", "passthrough"],
+    outputDir,
+  });
+
+  // webp is Sharp-processed; jpeg (native) is the verbatim original copy
+  t.is(stats.webp.length, 1);
+  t.is(stats.jpeg.length, 1);
+  t.is(stats.jpeg[0].width, 1280);
+  t.is(stats.jpeg[0].height, 853);
+
+  let source = fs.readFileSync("./test/bio-2017.jpg");
+  let jpegOutput = fs.readFileSync(stats.jpeg[0].outputPath);
+  t.true(source.equals(jpegOutput)); // original, byte-for-byte
+
+  let webpOutput = fs.readFileSync(stats.webp[0].outputPath);
+  t.false(source.equals(webpOutput)); // genuinely re-encoded, not a copy
+
+  fs.rmSync(outputDir, { recursive: true, force: true });
+});
+
+test("#212 Passthrough and a re-encode of the same native format get distinct filenames (no collision)", async t => {
+  let outputDir = "./test/img-passthrough-collision/";
+  let stats = await eleventyImage("./test/bio-2017.jpg", {
+    formats: ["jpeg", "passthrough"],
+    dryRun: true,
+    outputDir,
+  });
+
+  t.is(stats.jpeg.length, 2);
+  let passthrough = stats.jpeg.find(s => s.passthrough);
+  let reencoded = stats.jpeg.find(s => !s.passthrough);
+
+  t.is(path.basename(passthrough.outputPath), "KkPMmHd3hP.jpeg"); // hash.ext
+  t.is(path.basename(reencoded.outputPath), "KkPMmHd3hP-1280.jpeg"); // hash-<width>.ext
+  t.not(passthrough.outputPath, reencoded.outputPath);
+
+  // Passthrough is the untouched original; the re-encode is not
+  let source = fs.readFileSync("./test/bio-2017.jpg");
+  t.true(source.equals(passthrough.buffer));
+  t.false(source.equals(reencoded.buffer));
+});
+
 test("Try to use a width larger than original", async t => {
   let stats = await eleventyImage("./test/bio-2017.jpg", {
     widths: [1500],

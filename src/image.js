@@ -74,7 +74,11 @@ export default class Image {
 
     // Compatible with eleventy-dev-server and Eleventy 3.0.0-alpha.7+ in serve mode.
     if(this.options.transformOnRequest && !this.options.urlFormat) {
-      this.options.urlFormat = function({ src, width, format }/*, imageOptions*/, options) {
+      this.options.urlFormat = function({ src, width, format, passthrough }/*, imageOptions*/, options) {
+        // Because `format` is actually the *output* format, we need to override  a special case for passthrough.
+        if(passthrough) {
+          format = "passthrough";
+        }
         return `/.11ty/image/?src=${encodeURIComponent(src)}&width=${width}&format=${format}${options.generatedVia ? `&via=${options.generatedVia}` : ""}`;
       };
 
@@ -159,7 +163,6 @@ export default class Image {
     }
 
     let src = overrideLocalFilePath || this.src;
-
     // perf: check to make sure it’s not a string first
     if(typeof src !== "string" && Buffer.isBuffer(src)) {
       return src;
@@ -448,7 +451,7 @@ export default class Image {
     return truncated;
   }
 
-  getStat(outputFormat, width, height) {
+  getStat(outputFormat, width, height, isPassthrough = false) {
     let url;
     let outputFilename;
 
@@ -463,10 +466,14 @@ export default class Image {
         src: this.src,
         width,
         format: outputFormat,
+        passthrough: isPassthrough,
       }, this.options);
     } else {
       let hash = this.getHash();
-      outputFilename = ImagePath.getFilename(hash, this.src, width, outputFormat, this.options);
+      // Passthrough uses `hash.ext` (no width suffix): it's one intrinsic-size copy, and this
+      // keeps it distinct from a re-encoded `hash-<width>.ext` of the same format.
+      outputFilename = ImagePath.getFilename(hash, this.src, isPassthrough ? undefined : width, outputFormat, this.options);
+
       if(Util.isFullUrl(this.options.urlPath)) {
         url = new URL(outputFilename, this.options.urlPath).toString();
       } else {
@@ -484,6 +491,10 @@ export default class Image {
       // Not available in stats* functions below
       // size // only after processing
     };
+
+    if(isPassthrough) {
+      statEntry.passthrough = true;
+    }
 
     if(outputFilename) {
       statEntry.filename = outputFilename; // optional
@@ -522,6 +533,7 @@ export default class Image {
   }
 
   getEntryFormat(metadata) {
+    // unfortunately named: isn’t an override, is just a fallback
     return metadata.format || this.options.overrideInputFormat;
   }
 
@@ -548,6 +560,23 @@ export default class Image {
     }
 
     for(let outputFormat of outputFormats) {
+      // One native-format entry at intrinsic size; `stat.passthrough` tells `resize()` to copy
+      // the original bytes instead of running Sharp. Issues #133, #212.
+      if(outputFormat === "passthrough") {
+        if(!entryFormat) {
+          throw new Error("`formats: [\"passthrough\"]` requires a known source format. When using `statsOnly` with guessed dimensions (`imageMetadataOverride` without a `format`), the input format is unknown.");
+        }
+
+        let stat = this.getStat(entryFormat, metadata.width, metadata.height, true);
+
+        if(metadata.size) {
+          stat.size = metadata.size;
+        }
+
+        results.push(stat);
+        continue;
+      }
+
       if(!outputFormat || outputFormat === "auto") {
         throw new Error("When using `statsOnly` with `imageMetadataOverride` (guessed dimensions without a known source format), `formats: [null | 'auto']` to use the native image format is not supported.");
       }
@@ -694,6 +723,29 @@ export default class Image {
           stat.size = this.getOutputSize(outputFileContents, stat.outputPath);
 
           outputFilePromises.push(Promise.resolve(stat));
+          continue;
+        }
+
+        // Passthrough: copy the original bytes, no sharp processing
+        if(stat.passthrough) {
+          let contents = this.getLocalFileContents(input);
+
+          // overrides metadata.size if exists
+          stat.size = contents.length;
+
+          if(this.options.dryRun) {
+            stat.buffer = contents;
+            outputFilePromises.push(Promise.resolve(stat));
+          } else if(stat.outputPath) {
+            this.directoryManager.createFromFile(stat.outputPath);
+
+            debugAssets(Image.LOG_PREFIX + " Copying (passthrough, no Sharp processing) %o", stat.outputPath);
+
+            outputFilePromises.push(fsp.writeFile(stat.outputPath, contents).then(() => stat));
+          } else {
+            outputFilePromises.push(Promise.resolve(stat));
+          }
+
           continue;
         }
 
