@@ -1,4 +1,5 @@
-// const debug = require("debug")("Eleventy:Image");
+// import { createDebug } from "obug";
+// const debug = createDebug("Eleventy:Image");
 
 export default class DiskCache {
   #existsCache;

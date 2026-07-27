@@ -1,6 +1,6 @@
 import fs, { promises as fsp } from "node:fs";
 import path from "node:path";
-import debugUtil from "debug";
+import { createDebug } from "obug";
 
 import { createHashSync, isPlainObject } from "@11ty/eleventy-utils";
 import { Fetch } from "@11ty/eleventy-fetch";
@@ -14,8 +14,8 @@ import { generateHTML } from "./generate-html.js";
 import { getDefaults } from "./global-options.js";
 import { existsCache, memCache, diskCache } from "./caches.js";
 
-const debug = debugUtil("Eleventy:Image");
-const debugAssets = debugUtil("Eleventy:Assets");
+const debug = createDebug("Eleventy:Image");
+const debugAssets = createDebug("Eleventy:Assets");
 
 const MIME_TYPES = {
   "jpeg": "image/jpeg",

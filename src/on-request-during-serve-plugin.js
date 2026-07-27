@@ -1,11 +1,11 @@
 import fs from "node:fs";
-import debugUtil from "debug";
+import { createDebug } from "obug";
 import { TemplatePath } from "@11ty/eleventy-utils";
 
 import queueImage, { setupLogger } from "../img.js";
 import Util from "./util.js";
 
-const debug = debugUtil("Eleventy:Image");
+const debug = createDebug("Eleventy:Image");
 
 export function imageOnRequestDuringServePlugin($config, options = {}) {
   try {

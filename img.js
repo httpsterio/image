@@ -1,5 +1,5 @@
 import PQueue from "p-queue";
-import debugUtil from "debug";
+import { createDebug } from "obug";
 
 import DeferCounter from "./src/defer-counter.js";
 import BuildLogger from "./src/build-logger.js";
@@ -9,7 +9,7 @@ import DirectoryManager from "./src/directory-manager.js";
 import { getDefaults } from "./src/global-options.js";
 import { memCache, diskCache } from "./src/caches.js";
 
-const debug = debugUtil("Eleventy:Image");
+const debug = createDebug("Eleventy:Image");
 
 let deferCounter = new DeferCounter();
 let buildLogger = new BuildLogger();

@@ -1,6 +1,6 @@
-import debugUtil from "debug";
+import { createDebug } from "obug";
 
-const debug = debugUtil("Eleventy:Image");
+const debug = createDebug("Eleventy:Image");
 
 export default class MemoryCache {
   constructor() {

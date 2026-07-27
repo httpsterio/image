@@ -1,7 +1,7 @@
 import fs from "node:fs";
-import debugUtil from "debug";
+import { createDebug } from "obug";
 
-const debugAssets = debugUtil("Eleventy:Assets");
+const debugAssets = createDebug("Eleventy:Assets");
 
 export default async function createSvg(sharpInstance) {
   let input = sharpInstance.options.input;

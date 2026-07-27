@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import debugUtil from "debug";
+import { createDebug } from "obug";
 
-const debugAssets = debugUtil("Eleventy:Assets");
+const debugAssets = createDebug("Eleventy:Assets");
 
 export default class DirectoryManager {
   #dirs = new Set();
