@@ -692,11 +692,10 @@ export default class Image {
       input = await this.rawInput;
     }
 
-    let sharpInputImage = sharp(input, Object.assign({
-      // Deprecated by sharp, use `failOn` option instead
-      // https://github.com/lovell/sharp/blob/1533bf995acda779313fc178d2b9d46791349961/lib/index.d.ts#L915
-      failOnError: false,
-    }, this.options.sharpOptions));
+    // v7.0.0: `failOnError: false` default removed here (was removed in upstream sharp v0.35)
+    // Use `failOn` sharp option instead, which defaults to "warning"
+    // Ref: https://github.com/lovell/sharp/blob/1533bf995acda779313fc178d2b9d46791349961/lib/index.d.ts#L915
+    let sharpInputImage = sharp(input, Object.assign({}, this.options.sharpOptions));
 
     // Must find the image format from the metadata
     // File extensions lie or may not be present in the src url!
