@@ -694,3 +694,111 @@ test("#212 Passthrough during --serve mode defers to the on-request endpoint (no
   // which tells the on-request endpoint to stream the original bytes (no re-encode) in dev.
   t.is(normalizeEscapedPaths(results[0].content), `<img src="/.11ty/image/?src=test%2Fbio-2017.jpg&width=1280&format=passthrough&via=transform" alt="My ugly mug" width="1280" height="853">`);
 });
+
+// https://github.com/11ty/image/issues/358 (originally reported as 11ty/eleventy-base-blog#252)
+// When an image can’t be resolved and `failOnError: false`, we used to leave `src` set to the
+// file system path we resolved internally (e.g. `content/kittens.jpg`) instead of the author’s
+// original attribute value. Remote sources didn’t show this because `normalizeImageSource`
+// returns full URLs untouched—only local sources are rewritten.
+test("#358 failOnError: false keeps the original `src` for a missing local image (root-relative)", async t => {
+  let elev = new Eleventy( "test", "test/_site", {
+    config: eleventyConfig => {
+      // `/img/logo.webp` is passthrough copied in the user’s project, so it does not exist
+      // relative to the input directory.
+      eleventyConfig.addTemplate("virtual.html", `<img src="/img/logo.webp" alt="My ugly mug" style="padding: 2em;">`);
+
+      eleventyConfig.addPlugin(eleventyImageTransformPlugin, {
+        formats: ["auto"],
+        failOnError: false,
+        dryRun: true, // don’t write image files!
+      });
+    }
+  });
+  elev.disableLogger();
+
+  let results = await elev.toJSON();
+  t.is(results[0].content, `<img src="/img/logo.webp" alt="My ugly mug" style="padding: 2em;">`);
+});
+
+test("#358 failOnError: false keeps the original `src` for a missing local image (relative)", async t => {
+  let elev = new Eleventy( "test", "test/_site", {
+    config: eleventyConfig => {
+      eleventyConfig.addTemplate("virtual.html", `<img src="./kittens-DOES-NOT-EXIST.jpg" alt="My ugly mug">`);
+
+      eleventyConfig.addPlugin(eleventyImageTransformPlugin, {
+        formats: ["auto"],
+        failOnError: false,
+        dryRun: true, // don’t write image files!
+      });
+    }
+  });
+  elev.disableLogger();
+
+  let results = await elev.toJSON();
+  t.is(results[0].content, `<img src="./kittens-DOES-NOT-EXIST.jpg" alt="My ugly mug">`);
+});
+
+// Both fixtures below mirror eleventy-base-blog’s `content/`: a post whose image sits next to it,
+// rendered inline on the home page as well as on the post’s own page. They are ignored by the other
+// tests in this file via `test/.eleventyignore`.
+
+// Variant A — relative `src` + `renderTransforms(post.data.page)`:
+//   index.njk          {{ post.content | renderTransforms(post.data.page) | safe }}
+//   blog/post.md       <img src="./bio-2017.jpg">
+//   blog/bio-2017.jpg  colocated alongside post.md
+// `renderTransforms` runs the transform with the *post’s* page entry, so the relative `src` resolves
+// against `blog/post.md` and the home page gets the same colocated URL as the post’s own page.
+// The page-level transform then runs a second time over that already-resolved URL: it can’t find
+// `/blog/post/RMWe6Me2nc-150.jpeg` on disk, so it must leave the value alone. Before the fix it
+// overwrote it with the file system path it tried, which is why `renderTransforms` appeared to do
+// nothing at all.
+test("#358 `renderTransforms(post.data.page)` resolves a relative `src` in inline-rendered post content", async t => {
+  let elev = new Eleventy( "test/fixtures/issue358-relative", "test/_site", {
+    config: eleventyConfig => {
+      eleventyConfig.addPlugin(eleventyImageTransformPlugin, {
+        formats: ["auto"],
+        failOnError: false,
+        dryRun: true, // don’t write image files!
+      });
+    }
+  });
+  elev.disableLogger();
+
+  let results = await elev.toJSON();
+  let home = results.filter(entry => entry.url === "/")[0];
+  let post = results.filter(entry => entry.url === "/blog/post/")[0];
+
+  let expected = `<img src="/blog/post/RMWe6Me2nc-150.jpeg" alt="My ugly mug" width="150" height="100">`;
+  t.is(post.content.trim(), expected);
+  // The whole point of #358: inline rendering resolves to the same image as the post’s own page.
+  t.is(home.content.trim(), expected);
+});
+
+// Variant B — absolute `src`, no `renderTransforms`:
+//   index.njk          {{ post.content | safe }}
+//   blog/post.md       <img src="/blog/bio-2017.jpg">   (relative to the *input* directory)
+//   blog/bio-2017.jpg  colocated alongside post.md
+// An absolute `src` never depends on the rendering page: `normalizeImageSource` joins it to the
+// input directory rather than to `inputPath`, and `getOutputLocations` sends it to the shared
+// `/img/` output instead of colocating it. So inline rendering resolves with no filter at all—and,
+// unlike variant A, this one already worked before the fix.
+test("#358 an absolute `src` resolves in inline-rendered post content without `renderTransforms`", async t => {
+  let elev = new Eleventy( "test/fixtures/issue358-absolute", "test/_site", {
+    config: eleventyConfig => {
+      eleventyConfig.addPlugin(eleventyImageTransformPlugin, {
+        formats: ["auto"],
+        failOnError: false,
+        dryRun: true, // don’t write image files!
+      });
+    }
+  });
+  elev.disableLogger();
+
+  let results = await elev.toJSON();
+  let home = results.filter(entry => entry.url === "/")[0];
+  let post = results.filter(entry => entry.url === "/blog/post/")[0];
+
+  let expected = `<img src="/img/RMWe6Me2nc-150.jpeg" alt="My ugly mug" width="150" height="100">`;
+  t.is(post.content.trim(), expected);
+  t.is(home.content.trim(), expected);
+});

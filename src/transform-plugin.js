@@ -117,17 +117,20 @@ function transformTag(context, sourceNode, rootTargetNode, opts) {
     rootTargetNode.content = newNode.content;
   }, (error) => {
     if(isOptional(sourceNode) || !opts.failOnError) {
-      if(isOptional(sourceNode, "keep")) {
-        // replace with the original source value, no image transformation is taking place
+      if(isOptional(sourceNode, "placeholder")) {
+        // transparent png
+        sourceNode.attrs.src = PLACEHOLDER_DATA_URI;
+      } else if(isOptional(sourceNode) && !isOptional(sourceNode, "keep")) {
+        delete sourceNode.attrs.src;
+      } else {
+        // `eleventy:optional="keep"` or `failOnError: false` (Issue #358):
+        // replace with the original source value, no image transformation is taking place.
+        // Without this, `failOnError: false` leaks the internal file system path we resolved
+        // (e.g. `content/kittens.jpg`) into the output HTML.
         if(sourceNode.attrs[ATTRS.ORIGINAL_SOURCE]) {
           sourceNode.attrs.src = sourceNode.attrs[ATTRS.ORIGINAL_SOURCE];
         }
         // leave as-is, likely 404 when a user visits the page
-      } else if(isOptional(sourceNode, "placeholder")) {
-        // transparent png
-        sourceNode.attrs.src = PLACEHOLDER_DATA_URI;
-      } else if(isOptional(sourceNode)) {
-        delete sourceNode.attrs.src;
       }
 
       // optional or don’t fail on error
